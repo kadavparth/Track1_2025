@@ -6,3 +6,4 @@ yolov8n.pt
 output_videos/*
 pretrained/*
 mmpose/*
+runs/*
