@@ -6,4 +6,4 @@ yolov8n.pt
 output_videos/*
 pretrained/*
 /home/maverick/Track1_2025/mmpose/
-runs/best.pt
+runs/*
