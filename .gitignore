@@ -5,5 +5,5 @@ yolov8x.pt
 yolov8n.pt
 output_videos/*
 pretrained/*
-mmpose/*
-runs/*
+/home/maverick/Track1_2025/mmpose/
+runs/best.pt
