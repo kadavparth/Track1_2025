@@ -1,0 +1,8 @@
+ignore everything from data directory
+data/*
+yolo11n.pt
+yolov8x.pt
+yolov8n.pt
+output_videos/*
+pretrained/*
+mmpose/*

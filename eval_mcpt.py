@@ -7,9 +7,9 @@ from trackers.multicam_tracker.cluster_track import MCTracker
 from trackers.multicam_tracker.clustering import Clustering, ID_Distributor
 
 from perspective_transform.model import PerspectiveTransform
-from perspective_transform.calibration import calibration_position
+from perspective_transform.calibration import get_calibration_position #calibration_position
 
-from tools.utils import (_COLORS, get_reader_writer, finalize_cams, write_vids, write_results_testset, 
+from tools.utils_mod import (_COLORS, get_reader_writer, finalize_cams, write_vids, write_results_testset, 
                     update_result_lists_testset, sources, result_paths, cam_ids, cam_ids_full)
 
 import cv2
@@ -17,6 +17,7 @@ import os
 import time
 import numpy as np
 import argparse
+import h5py
 
 
 def make_parser():
@@ -29,13 +30,15 @@ def run(args, conf_thres, iou_thres, sources, result_paths, perspective, cam_ids
     if int(scene.split('_')[1]) in range(61,81):
         detection = YOLO('pretrained/yolov8x_aic.pt')
     else:
-        # detection = YOLO('yolov8x.pt')
-        detection = YOLO('runs/detect/aic24/weights/best.pt')
+        # detection = YOLO('yolov8n.pt')
+        detection = YOLO('runs/best.pt') # Parth' model weights
         print('detection model loaded', detection)
 
     # pose estimation initialize
-    config_file = '/mmpose/configs/body_2d_keypoint/rtmpose/crowdpose/rtmpose-m_8xb64-210e_crowdpose-256x192.py'
-    checkpoint_file = 'https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/rtmpose-m_simcc-crowdpose_pt-aic-coco_210e-256x192-e6192cac_20230224.pth'
+    # config_file = '/mmpose/configs/body_2d_keypoint/rtmpose/crowdpose/rtmpose-m_8xb64-210e_crowdpose-256x192.py'
+    config_file = 'mmpose/configs/body_2d_keypoint/rtmpose/crowdpose/rtmpose-m_8xb64-210e_crowdpose-256x192.py'
+    checkpoint_file = 'pretrained/rtmpose-m_simcc-crowdpose_pt-aic-coco_210e-256x192-e6192cac_20230224.pth'
+    # checkpoint_file = 'https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/rtmpose-m_simcc-crowdpose_pt-aic-coco_210e-256x192-e6192cac_20230224.pth'
     pose = init_model(config_file, checkpoint_file, device='cuda:0')
 
     # trackers initialize
@@ -45,7 +48,8 @@ def run(args, conf_thres, iou_thres, sources, result_paths, perspective, cam_ids
                             appearance_thresh=args['sct_appearance_thresh'], euc_thresh=args['sct_euclidean_thresh']))
 
     # perspective transform initialize
-    calibrations = calibration_position[perspective]
+    # calibrations = calibration_position[perspective]
+    calibrations = get_calibration_position(perspective)
     perspective_transforms = [PerspectiveTransform(c) for c in calibrations]
  
     # id_distributor and multi-camera tracker initialize
@@ -61,6 +65,13 @@ def run(args, conf_thres, iou_thres, sources, result_paths, perspective, cam_ids
     total_frames = max([len(s[0]) for s in src_handlers])
     cur_frame = 1
     stop = False  
+    
+    depth_files = []
+    try:
+        depth_file = h5py.File("data/Warehouse_002/depth_maps/Camera_0003.h5", "r")
+        print("[Depth] Loaded: Camera_0003.h5")
+    except Exception as e:
+        print(f"[Depth] Failed to load: {e}")
 
     while True:
         imgs = []
@@ -75,8 +86,16 @@ def run(args, conf_thres, iou_thres, sources, result_paths, perspective, cam_ids
             img_extension = img_path[66:]
             img = cv2.imread(img_path)
 
-            depth_map = img_extension.replace('.jpg', '.npy')
-            depth_map = np.load(f'data/depth_maps/{depth_map}')
+            # depth_map = img_extension.replace('.jpg', '.npy')
+            # depth_map = np.load(f'data/Warehouse_002/depth_maps/{depth_map}')
+            frame_filename = os.path.splitext(os.path.basename(img_path))[0]  # e.g., "frame_00003"
+            frame_num_str = frame_filename.replace("frame_", "").zfill(5)
+            depth_key = f"distance_to_image_plane_{frame_num_str}.png"
+            if depth_file and depth_key in depth_file:
+                depth_map = depth_file[depth_key][:]
+            else:
+                depth_map = None
+                print(f"[Warning] Missing depth map: {depth_key}")
             
             # Find the current camera's calibration data
             current_cam_id = cam_ids_full[scene]  # Get current camera ID
@@ -84,7 +103,8 @@ def run(args, conf_thres, iou_thres, sources, result_paths, perspective, cam_ids
             # Extract the camera number from the ID (e.g., "Camera_0001" -> 1)
             cam_num = int(current_cam_id[0].split('_')[1])
 
-            calib_path = f'/workspace/videos/val/{scene}/{current_cam_id[0]}/calibration.json'
+            # calib_path = f'/workspace/videos/val/{scene}/{current_cam_id[0]}/calibration.json' #old
+            calib_path = 'data/Warehouse_002/calibration.json'
             with open(calib_path, 'r') as f:    
                 calib_data = json.load(f)
 
@@ -181,6 +201,7 @@ if __name__ == '__main__':
         # for scene in scenes:
         #     run(args=args, conf_thres=0.1, iou_thres=0.45, sources=sources[scene], result_paths=result_paths[scene], perspective=scene, cam_ids=cam_ids[scene], scene=scene)
 
-    scenes = ['scene_000']
+    # scenes = ['scene_000'] # old
+    scenes = ['Warehouse_002']
     for scene in scenes:
         run(args=args, conf_thres=0.1, iou_thres=0.45, sources=sources[scene], result_paths=result_paths[scene], perspective=scene, cam_ids=cam_ids[scene], scene=scene)

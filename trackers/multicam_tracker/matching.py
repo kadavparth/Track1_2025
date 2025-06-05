@@ -57,13 +57,13 @@ def ious(atlbrs, btlbrs):
 
     :rtype ious np.ndarray
     """
-    ious = np.zeros((len(atlbrs), len(btlbrs)), dtype=np.float)
+    ious = np.zeros((len(atlbrs), len(btlbrs)), dtype=float)
     if ious.size == 0:
         return ious
 
     ious = bbox_ious(
-        np.ascontiguousarray(atlbrs, dtype=np.float),
-        np.ascontiguousarray(btlbrs, dtype=np.float)
+        np.ascontiguousarray(atlbrs, dtype=float),
+        np.ascontiguousarray(btlbrs, dtype=float)
     )
 
     return ious
@@ -133,13 +133,30 @@ def embedding_distance(atracks, btracks, metric='cosine'):
     :return: cost_matrix np.ndarray
     """
 
-    cost_matrix = np.zeros((len(atracks), len(btracks)), dtype=np.float)
+    cost_matrix = np.zeros((len(atracks), len(btracks)), dtype=float)
     if cost_matrix.size == 0:
         return cost_matrix
-    atrack_features = np.asarray([feat for feat in atracks], dtype=np.float)
-    btrack_features = np.asarray([feat for feat in btracks], dtype=np.float)
-
-    cost_matrix = np.maximum(0.0, cdist(atrack_features, btrack_features, metric))  # / 2.0  # Nomalized features
+    
+    # Convert to proper numpy arrays
+    try:
+        atrack_features = np.asarray([feat for feat in atracks if feat is not None], dtype=float)
+        btrack_features = np.asarray([feat for feat in btracks if feat is not None], dtype=float)
+        
+        # Check if we have valid features
+        if len(atrack_features) == 0 or len(btrack_features) == 0:
+            return np.zeros((len(atracks), len(btracks)), dtype=float)
+            
+        # Ensure 2D array
+        if atrack_features.ndim == 1:
+            atrack_features = atrack_features.reshape(1, -1)
+        if btrack_features.ndim == 1:
+            btrack_features = btrack_features.reshape(1, -1)
+            
+        cost_matrix = np.maximum(0.0, cdist(atrack_features, btrack_features, metric))
+    except Exception as e:
+        print(f"Warning: Error in embedding_distance: {e}")
+        cost_matrix = np.zeros((len(atracks), len(btracks)), dtype=float)
+    
     return cost_matrix
 
 def euclidean_distance(atracks, btracks, metric='euclidean'):
@@ -150,15 +167,92 @@ def euclidean_distance(atracks, btracks, metric='euclidean'):
     :return: cost_matrix np.ndarray
     """
 
-    cost_matrix = np.zeros((len(atracks), len(btracks)), dtype=np.float)
+    cost_matrix = np.zeros((len(atracks), len(btracks)), dtype=float)
     if cost_matrix.size == 0:
         return cost_matrix
-    atrack_locs = np.asarray([loc for loc in atracks], dtype=np.float)
-    btrack_locs = np.asarray([loc for loc in btracks], dtype=np.float)
+    
+    try:
+        # Handle different input formats and ensure 2D array
+        atrack_locs = []
+        for loc in atracks:
+            if isinstance(loc, (list, tuple)):
+                if len(loc) >= 2:
+                    atrack_locs.append([float(loc[0]), float(loc[1])])
+                else:
+                    atrack_locs.append([0.0, 0.0])  # Default location
+            elif isinstance(loc, np.ndarray):
+                if loc.size >= 2:
+                    atrack_locs.append([float(loc.flat[0]), float(loc.flat[1])])
+                else:
+                    atrack_locs.append([0.0, 0.0])
+            else:
+                atrack_locs.append([0.0, 0.0])  # Default for invalid location
+        
+        btrack_locs = []
+        for loc in btracks:
+            if isinstance(loc, (list, tuple)):
+                if len(loc) >= 2:
+                    btrack_locs.append([float(loc[0]), float(loc[1])])
+                else:
+                    btrack_locs.append([0.0, 0.0])
+            elif isinstance(loc, np.ndarray):
+                if loc.size >= 2:
+                    btrack_locs.append([float(loc.flat[0]), float(loc.flat[1])])
+                else:
+                    btrack_locs.append([0.0, 0.0])
+            else:
+                btrack_locs.append([0.0, 0.0])
+        
+        atrack_locs = np.asarray(atrack_locs, dtype=float)
+        btrack_locs = np.asarray(btrack_locs, dtype=float)
+        
+        # Ensure we have valid 2D arrays
+        if len(atrack_locs) == 0 or len(btrack_locs) == 0:
+            return cost_matrix
+            
+        if atrack_locs.ndim != 2 or btrack_locs.ndim != 2:
+            print(f"Warning: Invalid array dimensions in euclidean_distance: {atrack_locs.shape}, {btrack_locs.shape}")
+            return cost_matrix
+            
+        if atrack_locs.shape[1] == 0 or btrack_locs.shape[1] == 0:
+            print(f"Warning: Empty location arrays in euclidean_distance")
+            return cost_matrix
 
-    # cost_matrix = np.maximum(0.0, cdist(atrack_features, btrack_features, metric))  # / 2.0  # Nomalized features
-    cost_matrix = cdist(atrack_locs, btrack_locs, metric)
+        cost_matrix = cdist(atrack_locs, btrack_locs, metric)
+        
+    except Exception as e:
+        print(f"Warning: Error in euclidean_distance: {e}")
+        print(f"  atracks length: {len(atracks)}, btracks length: {len(btracks)}")
+        if len(atracks) > 0:
+            print(f"  First atrack type: {type(atracks[0])}, value: {atracks[0]}")
+        if len(btracks) > 0:
+            print(f"  First btrack type: {type(btracks[0])}, value: {btracks[0]}")
+        cost_matrix = np.zeros((len(atracks), len(btracks)), dtype=float)
+    
     return cost_matrix
+
+def centroid_distance(atracks, btracks):
+    """
+    Compute centroid distance between tracks
+    :param atracks: list[STrack] or list of centroids
+    :param btracks: list[STrack] or list of centroids
+    :return: cost_matrix np.ndarray
+    """
+    if len(atracks) == 0 or len(btracks) == 0:
+        return np.zeros((len(atracks), len(btracks)), dtype=float)
+    
+    # Extract centroids from tracks
+    if hasattr(atracks[0], 'centroid'):
+        a_centroids = [track.centroid for track in atracks]
+    else:
+        a_centroids = atracks
+        
+    if hasattr(btracks[0], 'centroid'):
+        b_centroids = [track.centroid for track in btracks]
+    else:
+        b_centroids = btracks
+    
+    return euclidean_distance(a_centroids, b_centroids)
 
 def gate_cost_matrix(kf, cost_matrix, tracks, detections, only_position=False):
     if cost_matrix.size == 0:

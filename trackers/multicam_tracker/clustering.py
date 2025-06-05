@@ -25,25 +25,46 @@ class Clustering:
         tracker_pairs = list(combinations(trackers, 2))
 
         # First check for scene_000 and scene_001
-        if scene == 'scene_000' or scene == 'scene_001':
-            hw_thresh, has_points_thresh, has_heads_thresh, num_kpts_thresh = 1.5, 8, 2, 18
-            emb_thresh = 0.30
-            euc_thresh = 1
-        elif int(scene.split('_')[1]) in range(61, 71):
-            hw_thresh, has_points_thresh, has_heads_thresh, num_kpts_thresh = 1.5, 8, 2, 18
-            emb_thresh = 0.30
-            euc_thresh = 1
-        elif int(scene.split('_')[1]) in range(71, 81):
-            hw_thresh, has_points_thresh, has_heads_thresh, num_kpts_thresh = 1.5, 8, 2, 18
-            emb_thresh = 0.325
-            euc_thresh = 1
-        elif int(scene.split('_')[1]) in range(81, 91):
-            hw_thresh, has_points_thresh, has_heads_thresh, num_kpts_thresh = 1.5, 8, 2, 18
-            emb_thresh = 0.30
-            euc_thresh = 1.5
-        else:
-            print('Not Test Set Scene')
-            raise ValueError('Invalid scene number')
+        # if scene == 'scene_000' or scene == 'scene_001':
+        #     hw_thresh, has_points_thresh, has_heads_thresh, num_kpts_thresh = 1.5, 8, 2, 18
+        #     emb_thresh = 0.30
+        #     euc_thresh = 1
+        # elif int(scene.split('_')[1]) in range(61, 71):
+        #     hw_thresh, has_points_thresh, has_heads_thresh, num_kpts_thresh = 1.5, 8, 2, 18
+        #     emb_thresh = 0.30
+        #     euc_thresh = 1
+        # elif int(scene.split('_')[1]) in range(71, 81):
+        #     hw_thresh, has_points_thresh, has_heads_thresh, num_kpts_thresh = 1.5, 8, 2, 18
+        #     emb_thresh = 0.325
+        #     euc_thresh = 1
+        # elif int(scene.split('_')[1]) in range(81, 91):
+        #     hw_thresh, has_points_thresh, has_heads_thresh, num_kpts_thresh = 1.5, 8, 2, 18
+        #     emb_thresh = 0.30
+        #     euc_thresh = 1.5
+        # else:
+        #     print('Not Test Set Scene')
+        #     raise ValueError('Invalid scene number')
+        hw_thresh, has_points_thresh, has_heads_thresh, num_kpts_thresh = 1.5, 8, 2, 18
+        emb_thresh = 0.30
+        euc_thresh = 1
+        try:
+            scene_number = int(scene.split('_')[1])
+            if scene_number in range(61, 71):
+                hw_thresh, has_points_thresh, has_heads_thresh, num_kpts_thresh = 1.5, 8, 2, 18
+                emb_thresh = 0.30
+                euc_thresh = 1
+            elif scene_number in range(71, 81):
+                hw_thresh, has_points_thresh, has_heads_thresh, num_kpts_thresh = 1.5, 8, 2, 18
+                emb_thresh = 0.325
+                euc_thresh = 1
+            elif scene_number in range(81, 91):
+                hw_thresh, has_points_thresh, has_heads_thresh, num_kpts_thresh = 1.5, 8, 2, 18
+                emb_thresh = 0.30
+                euc_thresh = 1.5
+            else:
+                raise ValueError
+        except:
+            print(f"[Warning] Scene '{scene}' not in predefined test set ranges. Using default clustering thresholds.")
 
         for tracker in trackers:
             for track in tracker.tracked_stracks:
@@ -278,7 +299,7 @@ class Clustering:
 
 
 def group_dists(rerank_dists, lengths_exists, lengths_new, shape, normalize=True):
-    emb_dists = np.zeros(shape, dtype=np.float)
+    emb_dists = np.zeros(shape, dtype=float)
     total_sum = np.sum(rerank_dists)
     num = 0
     ratio = 0

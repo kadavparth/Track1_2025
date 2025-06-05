@@ -149,41 +149,76 @@ class MCTracker:
         # self.match_thresh = 0.99
         self.max_len = 1
 
-        self.clustering = AgglomerativeClustering(n_clusters=2, affinity='cosine', linkage='average')
+        self.clustering = AgglomerativeClustering(n_clusters=2, metric='cosine', linkage='average')
         # self.clustering = AgglomerativeClustering(n_clusters=2, metric='cosine', linkage='ward')
 
         # First check for scene_000 and scene_001
-        if scene == 'scene_000' or scene == 'scene_001':
+        # if scene == 'scene_000' or scene == 'scene_001':
+        #     self.emb_thresh = 0.30
+        #     self.euc_thresh = 1.5
+        #     self.refine_1st_emb = 0.325
+        #     self.refine_2nd_emb = 0.325
+        #     self.refine_2nd_euc = 1
+        #     self.refine_3rd_emb = 0.30
+        # elif int(scene.split('_')[1]) in range(61, 71):
+        #     self.emb_thresh = 0.30
+        #     self.euc_thresh = 1.5
+        #     self.refine_1st_emb = 0.325
+        #     self.refine_2nd_emb = 0.325
+        #     self.refine_2nd_euc = 1
+        #     self.refine_3rd_emb = 0.30
+        # elif int(scene.split('_')[1]) in range(71, 81):
+        #     self.emb_thresh = 0.325
+        #     self.euc_thresh = 1.5
+        #     self.refine_1st_emb = 0.325
+        #     self.refine_2nd_emb = 0.35
+        #     self.refine_2nd_euc = 1
+        #     self.refine_3rd_emb = 0.325
+        # elif int(scene.split('_')[1]) in range(81, 91):
+        #     self.emb_thresh = 0.35
+        #     self.euc_thresh = 1.5
+        #     self.refine_1st_emb = 0.25
+        #     self.refine_2nd_emb = 0.325
+        #     self.refine_2nd_euc = 1
+        #     self.refine_3rd_emb = 0.30
+        # else:
+        #     print('Not Test Set Scene')
+        #     raise ValueError('Invalid scene number')
+        
+        try:
+            scene_number = int(scene.split('_')[1])
+            if scene_number in range(61, 71):
+                self.emb_thresh = 0.30
+                self.euc_thresh = 1.5
+                self.refine_1st_emb = 0.325
+                self.refine_2nd_emb = 0.325
+                self.refine_2nd_euc = 1
+                self.refine_3rd_emb = 0.30
+            elif scene_number in range(71, 81):
+                self.emb_thresh = 0.325
+                self.euc_thresh = 1.5
+                self.refine_1st_emb = 0.325
+                self.refine_2nd_emb = 0.35
+                self.refine_2nd_euc = 1
+                self.refine_3rd_emb = 0.325
+            elif scene_number in range(81, 91):
+                self.emb_thresh = 0.35
+        
+                self.euc_thresh = 1.5
+                self.refine_1st_emb = 0.25
+                self.refine_2nd_emb = 0.325
+                self.refine_2nd_euc = 1
+                self.refine_3rd_emb = 0.30
+            else:
+                raise ValueError
+        except:
+            print(f"[Warning] Scene '{scene}' not in predefined test set ranges. Using default thresholds.")
             self.emb_thresh = 0.30
             self.euc_thresh = 1.5
-            self.refine_1st_emb = 0.325
-            self.refine_2nd_emb = 0.325
+            self.refine_1st_emb = 0.30
+            self.refine_2nd_emb = 0.30
             self.refine_2nd_euc = 1
             self.refine_3rd_emb = 0.30
-        elif int(scene.split('_')[1]) in range(61, 71):
-            self.emb_thresh = 0.30
-            self.euc_thresh = 1.5
-            self.refine_1st_emb = 0.325
-            self.refine_2nd_emb = 0.325
-            self.refine_2nd_euc = 1
-            self.refine_3rd_emb = 0.30
-        elif int(scene.split('_')[1]) in range(71, 81):
-            self.emb_thresh = 0.325
-            self.euc_thresh = 1.5
-            self.refine_1st_emb = 0.325
-            self.refine_2nd_emb = 0.35
-            self.refine_2nd_euc = 1
-            self.refine_3rd_emb = 0.325
-        elif int(scene.split('_')[1]) in range(81, 91):
-            self.emb_thresh = 0.35
-            self.euc_thresh = 1.5
-            self.refine_1st_emb = 0.25
-            self.refine_2nd_emb = 0.325
-            self.refine_2nd_euc = 1
-            self.refine_3rd_emb = 0.30
-        else:
-            print('Not Test Set Scene')
-            raise ValueError('Invalid scene number')
     
     def update(self, trackers, groups, scene=None):
         self.frame_id += 1
@@ -492,7 +527,7 @@ class MCTracker:
 
 
 def grouping_rerank(rerank_dists, lengths_exists, lengths_new, shape, normalize=True):
-    emb_dists = np.zeros(shape, dtype=np.float)
+    emb_dists = np.zeros(shape, dtype=float)
     total_sum = np.sum(rerank_dists)
     num = 0
     ratio = 0

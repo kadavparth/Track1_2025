@@ -28,7 +28,7 @@ class STrack(BaseTrack):
     def __init__(self, tlwh, score, feat=None, pose=None, num_kpts=0, img_path=None, feat_history=50):
 
         # wait activate
-        self._tlwh = np.asarray(tlwh, dtype=np.float)
+        self._tlwh = np.asarray(tlwh, dtype=float)
         self.kalman_filter = None
         self.mean, self.covariance = None, None
         self.is_activated = False
@@ -45,7 +45,7 @@ class STrack(BaseTrack):
             self.update_features(feat)
         self.alpha = 0.9
 
-        self.centroid = np.asarray(self._tlwh[:2] + self._tlwh[2:] / 2, dtype=np.float)
+        self.centroid = np.asarray(self._tlwh[:2] + self._tlwh[2:] / 2, dtype=float)
         self.t_global_id = 0
         self.global_id = 0
 
