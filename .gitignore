@@ -1,4 +1,4 @@
-ignore everything from data directory
+#ignore everything from data directory
 data/*
 yolo11n.pt
 yolov8x.pt
