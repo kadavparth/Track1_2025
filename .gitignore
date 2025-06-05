@@ -5,5 +5,5 @@ yolov8x.pt
 yolov8n.pt
 output_videos/*
 pretrained/*
-/home/maverick/Track1_2025/mmpose/
+/home/maverick/Track1_2025/mmpose/*
 runs/*
