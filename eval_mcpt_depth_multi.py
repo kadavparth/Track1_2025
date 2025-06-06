@@ -32,6 +32,8 @@ def make_parser():
     parser.add_argument("-s", "--scene", type=str, default="Warehouse_002", help="scene name to inference")
     parser.add_argument("--enable_3d", action="store_true", help="Enable 3D bounding box mode")
     parser.add_argument("--data_root", type=str, default="data/Warehouse_002", help="Root directory containing videos and depth maps")
+    parser.add_argument("--save_logs", action="store_true", help="Save terminal output to log file")
+    parser.add_argument("--log_file", type=str, default="tracking_log.txt", help="Log file path")
     return parser.parse_args()
 
 
@@ -128,11 +130,11 @@ def load_depth_maps(data_root, camera_names):
 
 def load_calibration_data(data_root, camera_names):
     """
-    Load camera calibration data for each camera
+    Load camera calibration data for each camera with proper ID mapping
     
     Args:
         data_root: Root directory containing calibration.json
-        camera_names: List of camera names
+        camera_names: List of camera names (e.g., ["Camera_0001", "Camera_0003"])
     
     Returns:
         List of calibration dictionaries
@@ -144,14 +146,27 @@ def load_calibration_data(data_root, camera_names):
     
     camera_calibrations = []
     
+    # Create mapping from camera names to sensor indices
+    camera_id_mapping = {}
+    for i, sensor in enumerate(calib_data['sensors']):
+        sensor_id = sensor.get('id', '')
+        if sensor_id == 'Camera':
+            camera_id_mapping['Camera_0000'] = i  # Default camera
+        else:
+            # Convert Camera_01 -> Camera_0001, Camera_03 -> Camera_0003, etc.
+            if '_' in sensor_id:
+                cam_num = sensor_id.split('_')[1]
+                formatted_name = f"Camera_{cam_num.zfill(4)}"
+                camera_id_mapping[formatted_name] = i
+    
+    print(f"[Calibration] Camera ID mapping: {camera_id_mapping}")
+    
     for camera_name in camera_names:
-        # Extract camera number from name (e.g., "Camera_0001" -> 1)
-        cam_num = int(camera_name.split('_')[1])
-        
-        if 'sensors' in calib_data and cam_num < len(calib_data['sensors']):
-            camera_calibration = calib_data['sensors'][cam_num]
+        if camera_name in camera_id_mapping:
+            sensor_idx = camera_id_mapping[camera_name]
+            camera_calibration = calib_data['sensors'][sensor_idx]
             camera_calibrations.append(camera_calibration)
-            print(f"[Calibration] Loaded for {camera_name}")
+            print(f"[Calibration] Loaded for {camera_name} (sensor index {sensor_idx})")
         else:
             print(f"[Calibration] Not found for {camera_name}")
             camera_calibrations.append(None)
@@ -242,40 +257,82 @@ def finalize_cameras(src_handlers):
         print(f"Released {camera_name}")
 
 
-def run(args, conf_thres, iou_thres, data_root, scene, enable_3d=False):
+def run(args, conf_thres, iou_thres, data_root, scene, enable_3d=False, log_file=None):
+    # Setup logging if requested
+    if log_file:
+        import sys
+        class Logger:
+            def __init__(self, filename):
+                self.terminal = sys.stdout
+                self.log = open(filename, "w")
+            
+            def write(self, message):
+                self.terminal.write(message)
+                self.log.write(message)
+                self.log.flush()
+            
+            def flush(self):
+                self.terminal.flush()
+                self.log.flush()
+        
+        sys.stdout = Logger(log_file)
+        print(f"[LOG] Starting logging to {log_file}")
+    
+    print(f"[SYSTEM] Starting multi-camera tracking for scene: {scene}")
+    print(f"[SYSTEM] Data root: {data_root}")
+    print(f"[SYSTEM] 3D mode: {'Enabled' if enable_3d else 'Disabled'}")
+    
     # Detection model initialize
-    # detection = YOLO('runs/best.pt')
-    detection = YOLO('yolo11n.pt')
-    print('Detection model loaded:', detection)
+    detection = YOLO('runs/best.pt')
+    print('[DETECTION] Model loaded:', detection)
         
     # Pose estimation initialize
     config_file = 'mmpose/configs/body_2d_keypoint/rtmpose/crowdpose/rtmpose-m_8xb64-210e_crowdpose-256x192.py'
     checkpoint_file = 'https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/rtmpose-m_simcc-crowdpose_pt-aic-coco_210e-256x192-e6192cac_20230224.pth'
     pose = init_model(config_file, checkpoint_file, device='cuda:0')
-    print(f"✅ Pose model loaded successfully with {pose.dataset_meta.get('num_joints', 'unknown')} joints")
+    print(f"[POSE] Model loaded successfully with {pose.dataset_meta.get('num_joints', 'unknown')} joints")
 
     # Get video readers and writers for all cameras
     src_handlers = get_video_readers_and_writers(data_root, scene, enable_3d)
     camera_names = [handler[2] for handler in src_handlers]
+    print(f"[CAMERAS] Found cameras: {camera_names}")
     
     # Initialize trackers for each camera
     trackers = []
     for i in range(len(src_handlers)):
        trackers.append(BoTSORT(track_buffer=args['track_buffer'], max_batch_size=args['max_batch_size'], 
                             appearance_thresh=args['sct_appearance_thresh'], euc_thresh=args['sct_euclidean_thresh']))
-    print(f"Trackers initialized for {len(trackers)} cameras")
+    print(f"[TRACKERS] Initialized for {len(trackers)} cameras")
+
+    # Create camera ID mapping for perspective transforms
+    camera_id_mapping = {}
+    for camera_name in camera_names:
+        if camera_name == 'Camera_0000':
+            camera_id_mapping[camera_name] = 0
+        else:
+            # Convert Camera_0001 -> 1, Camera_0003 -> 3, etc.
+            cam_num = int(camera_name.split('_')[1])
+            camera_id_mapping[camera_name] = cam_num
+    
+    print(f"[PERSPECTIVE] Camera ID mapping: {camera_id_mapping}")
 
     # Perspective transform initialize (if available)
     try:
         calibrations_perspective = get_calibration_position(scene)
-        # Ensure we have the right number of perspective transforms
-        if len(calibrations_perspective) >= len(src_handlers):
-            perspective_transforms = [PerspectiveTransform(calibrations_perspective[i]) for i in range(len(src_handlers))]
-        else:
-            print(f"Warning: Not enough perspective calibrations ({len(calibrations_perspective)}) for cameras ({len(src_handlers)})")
-            perspective_transforms = [None] * len(src_handlers)
+        print(f"[PERSPECTIVE] Found {len(calibrations_perspective)} calibration files")
+        
+        perspective_transforms = []
+        for camera_name in camera_names:
+            if len(calibrations_perspective) > 0:
+                # Use the main calibration file for all cameras
+                perspective_transforms.append(PerspectiveTransform(calibrations_perspective[0]))
+                print(f"[PERSPECTIVE] Initialized for {camera_name}")
+            else:
+                perspective_transforms.append(None)
+                print(f"[PERSPECTIVE] Warning: No calibration for {camera_name}")
+                
     except Exception as e:
-        print(f"Warning: Could not load perspective transforms: {e}")
+        print(f"[PERSPECTIVE] Warning: Could not load perspective transforms: {e}")
         perspective_transforms = [None] * len(src_handlers)
  
     # Multi-camera tracker initialize
@@ -309,7 +366,7 @@ def run(args, conf_thres, iou_thres, data_root, scene, enable_3d=False):
     # Main processing loop
     while cur_frame <= total_frames:
         # Add frame limit for testing
-        if cur_frame > 1000:
+        if cur_frame > 500:
             print(f"Reached frame limit of 1000, stopping processing...")
             break
             
@@ -345,6 +402,7 @@ def run(args, conf_thres, iou_thres, data_root, scene, enable_3d=False):
             # Calculate 3D positions if enabled
             if enable_3d and depth_map is not None and camera_calibrations[idx] is not None:
                 camera_calibration = camera_calibrations[idx]
+                print(f"[3D] Processing 3D coordinates for {camera_name} with {len(dets)} detections")
                 
                 dets_cent = [[int((dets[i][0] + dets[i][2])/2), int((dets[i][1] + dets[i][3])/2)] for i in range(len(dets))]
                 dets_cent_depth = [depth_map[dets_cent[i][1], dets_cent[i][0]]/1000 for i in range(len(dets_cent))]
@@ -367,10 +425,14 @@ def run(args, conf_thres, iou_thres, data_root, scene, enable_3d=False):
             # Run tracker for this camera
             img_path = f"{camera_name}_frame_{cur_frame:05d}"  # Synthetic path for compatibility
             online_targets, new_ratio = trackers[idx].update(dets, img, img_path, pose)
+            
+            if cur_frame <= 3:  # Debug info for first few frames
+                print(f"[TRACKER] Frame {cur_frame}, {camera_name}: {len(online_targets)} tracks, pose: {'✅' if pose is not None else '❌'}")
 
             # Run perspective transform if available
             if perspective_transforms[idx] is not None:
                 perspective_transforms[idx].run(trackers[idx], new_ratio)
+                print(f"[PERSPECTIVE] Applied transform for {camera_name}")
 
             # Assign temporal global_id and initialize location for multi-camera tracking
             for t in trackers[idx].tracked_stracks:
@@ -440,20 +502,23 @@ def run(args, conf_thres, iou_thres, data_root, scene, enable_3d=False):
     
     # Cleanup
     finalize_cameras(src_handlers)
+    print(f"[CLEANUP] Released {len(src_handlers)} cameras")
     
     # Close depth files
     if enable_3d:
         for depth_file in depth_files:
             if depth_file is not None:
                 depth_file.close()
+        print(f"[CLEANUP] Closed {len([f for f in depth_files if f is not None])} depth files")
 
     # Save results
     try:
-        # You may need to create result paths for the new format
+        # Create result paths for the new format
         result_paths_list = [f"output_videos/{scene}/{camera_name}_results.txt" for camera_name in camera_names]
         write_results_testset(results_lists, result_paths_list)
-    except:
-        print("Warning: Could not save results in standard format")
+        print(f"[RESULTS] Saved results for {len(camera_names)} cameras")
+    except Exception as e:
+        print(f"[RESULTS] Warning: Could not save results in standard format: {e}")
         # Save results manually
         for i, (results, camera_name) in enumerate(zip(results_lists, camera_names)):
             result_path = f"output_videos/{scene}/{camera_name}_results.txt"
@@ -461,8 +526,9 @@ def run(args, conf_thres, iou_thres, data_root, scene, enable_3d=False):
             with open(result_path, 'w') as f:
                 for result in results:
                     f.write(f"{result}\n")
+            print(f"[RESULTS] Manually saved {len(results)} results for {camera_name}")
     
-    print('Processing completed successfully!')
+    print('[SYSTEM] Processing completed successfully!')
 
 
 if __name__ == '__main__':
@@ -483,10 +549,16 @@ if __name__ == '__main__':
     scene = parsed_args.scene
     enable_3d = parsed_args.enable_3d
     data_root = parsed_args.data_root
+    
+    # Setup logging if requested
+    log_file = None
+    if parsed_args.save_logs:
+        log_file = parsed_args.log_file
+        print(f"Logging enabled: {log_file}")
 
     print(f"Starting multi-camera tracking for scene: {scene}")
     print(f"Data root: {data_root}")
     print(f"3D mode: {'Enabled' if enable_3d else 'Disabled'}")
     
     run(args=args, conf_thres=0.1, iou_thres=0.45, data_root=data_root, 
-        scene=scene, enable_3d=enable_3d)
+        scene=scene, enable_3d=enable_3d, log_file=log_file)
