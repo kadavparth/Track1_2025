@@ -4,6 +4,22 @@ import cv2
 import os
 import json
 
+# Scene name to ID mapping
+SCENE_ID_MAPPING = {
+    'Warehouse_000': 0, 'Warehouse_001': 1, 'Warehouse_002': 2, 'Warehouse_003': 3,
+    'Warehouse_004': 4, 'Warehouse_005': 5, 'Warehouse_006': 6, 'Warehouse_007': 7,
+    'Warehouse_008': 8, 'Warehouse_009': 9, 'Warehouse_010': 10, 'Warehouse_011': 11,
+    'Warehouse_012': 12, 'Warehouse_013': 13, 'Warehouse_014': 14, 'Warehouse_015': 15,
+    'Warehouse_016': 16, 'Warehouse_017': 17, 'Warehouse_018': 18, 'Warehouse_019': 19,
+    'Warehouse_020': 20, 'Lab_000': 22, 'Hospital_000': 23
+}
+
+# Class ID mapping
+CLASS_ID_MAPPING = {
+    'Person': 0, 'Forklift': 1, 'NovaCarter': 2, 'Transporter': 3, 
+    'FourierGR1T2': 4, 'AgilityDigit': 5
+}
+
 _COLORS = np.array(
     [
         0.000, 0.447, 0.741,
