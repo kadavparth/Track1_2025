@@ -4,6 +4,8 @@ yolo11n.pt
 yolov8x.pt
 yolov8n.pt
 output_videos/*
+output_txt/*
+updated_model/*
 pretrained/*
 /home/maverick/Track1_2025/mmpose/*
 runs/*

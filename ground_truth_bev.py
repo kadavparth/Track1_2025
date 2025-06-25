@@ -33,12 +33,12 @@ from pathlib import Path
 
 def make_parser():
     parser = argparse.ArgumentParser(description="Run Online MTPC System")
-    parser.add_argument("-s", "--scene", type=str, default="Warehouse_013", help="scene name to inference")
+    parser.add_argument("-s", "--scene", type=str, default="Warehouse_020", help="scene name to inference")
     parser.add_argument("--enable_3d", action="store_true", help="Enable 3D bounding box mode")
     parser.add_argument("--enable_bev", action="store_true", help="Enable Bird's Eye View visualization")
     parser.add_argument("--show_gt", action="store_true", help="Show ground truth on BEV")
-    parser.add_argument("--data_root", type=str, default="data/Warehouse_013", help="Root directory containing videos and depth maps")
-    parser.add_argument("--gt_path", type=str, default="data/Warehouse_013/ground_truth.json", help="Path to ground truth JSON")
+    parser.add_argument("--data_root", type=str, default="data/Warehouse_020", help="Root directory containing videos and depth maps")
+    parser.add_argument("--gt_path", type=str, default="data/Warehouse_020/ground_truth.json", help="Path to ground truth JSON")
     return parser.parse_args()
 
 
@@ -383,13 +383,8 @@ def draw_3d_box_on_bev(bev_img, corners_3d_world, scale_factor, tx, ty, map_heig
 
 def write_results_unified(result_lists, scene_name, output_dir):
     """
-    Write results in the unified format:
+    Write results in the unified format with deduplication by global ID per frame:
     <scene_id> <class_id> <object_id> <frame_id> <x> <y> <z> <width> <length> <height> <yaw>
-    
-    Args:
-        result_lists: List of results from all cameras
-        scene_name: Name of the scene (e.g., "Warehouse_002")
-        output_dir: Output directory for results
     """
     # Get scene ID from mapping
     scene_id = SCENE_ID_MAPPING.get(scene_name, 0)
@@ -398,19 +393,40 @@ def write_results_unified(result_lists, scene_name, output_dir):
     os.makedirs(output_dir, exist_ok=True)
     result_path = os.path.join(output_dir, f"{scene_name}_tracking_results.txt")
     
-    # Collect all results and sort by frame_id and object_id
+    # Collect all results
     all_results = []
     for result_list in result_lists:
         all_results.extend(result_list)
     
-    # Sort by frame_id, then by object_id
-    all_results.sort(key=lambda x: (x['frame_id'], x['object_id']))
+    # Group by frame_id and object_id to remove duplicates
+    frame_objects = {}
+    for result in all_results:
+        frame_id = result['frame_id']
+        object_id = result['object_id']
+        
+        # Skip invalid object IDs
+        if object_id < 0:
+            continue
+            
+        key = (frame_id, object_id)
+        
+        # Keep the first occurrence or the one with highest confidence
+        if key not in frame_objects:
+            frame_objects[key] = result
+        else:
+            # Optional: Keep the result with higher confidence
+            if result.get('score', 0) > frame_objects[key].get('score', 0):
+                frame_objects[key] = result
     
-    # Write results in the specified format
+    # Convert back to list and sort
+    deduplicated_results = list(frame_objects.values())
+    deduplicated_results.sort(key=lambda x: (x['frame_id'], x['object_id']))
+    
+    # Write results
     with open(result_path, 'w') as f:
-        for result in all_results:
+        for result in deduplicated_results:
             # Extract values
-            class_id = result['class_id']  # Person = 0
+            class_id = result['class_id']
             object_id = result['object_id']
             frame_id = result['frame_id']
             x, y, z = result['world_coords']
@@ -421,7 +437,8 @@ def write_results_unified(result_lists, scene_name, output_dir):
             line = f"{scene_id} {class_id} {object_id} {frame_id} {x:.2f} {y:.2f} {z:.2f} {width:.2f} {length:.2f} {height:.2f} {yaw:.2f}\n"
             f.write(line)
     
-    print(f"[RESULTS] Saved {len(all_results)} tracking results to {result_path}")
+    print(f"[RESULTS] Saved {len(deduplicated_results)} deduplicated tracking results to {result_path}")
+    print(f"[RESULTS] Removed {len(all_results) - len(deduplicated_results)} duplicate entries")
 
 
 def update_result_lists_with_3d(trackers, result_lists, frame_id, depth_maps, calibrations):
@@ -651,12 +668,14 @@ def run(args, conf_thres, iou_thres, data_root, scene, enable_3d=False, enable_b
     print(f"[SYSTEM] Ground Truth: {'Enabled' if show_gt else 'Disabled'}")
     
     # Detection model initialize
-    detection = YOLO('runs/best.pt')
+    # detection = YOLO('pretrained/last_1.pt') # model from Maged
+    detection =YOLO('updated_model/yolov8x_aic.pt') # model from 2024
     print('[DETECTION] Model loaded:', detection)
         
     # Pose estimation initialize
     config_file = 'mmpose/configs/body_2d_keypoint/rtmpose/crowdpose/rtmpose-m_8xb64-210e_crowdpose-256x192.py'
     checkpoint_file = 'https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/rtmpose-m_simcc-crowdpose_pt-aic-coco_210e-256x192-e6192cac_20230224.pth'
+    # checkpoint_file = 'updated_model/market_aic_sbs_R50-ibn.pth' # model from 2024
     pose = init_model(config_file, checkpoint_file, device='cuda:0')
     print(f"[POSE] Model loaded successfully with {pose.dataset_meta.get('num_joints', 'unknown')} joints")
 
@@ -763,7 +782,7 @@ def run(args, conf_thres, iou_thres, data_root, scene, enable_3d=False, enable_b
     # Main processing loop
     while cur_frame <= total_frames:
         # Add frame limit for testing
-        if cur_frame > 2000:
+        if cur_frame > 300:
             print(f"Reached frame limit of 1000, stopping processing...")
             break
             
@@ -794,7 +813,7 @@ def run(args, conf_thres, iou_thres, data_root, scene, enable_3d=False, enable_b
             depth_maps.append(depth_map)
 
             # Run detection
-            dets = detection(img, conf=conf_thres, iou=iou_thres, classes=[0,1,2,3], verbose=False)[0].boxes.data.cpu().numpy()
+            dets = detection(img, conf=conf_thres, iou=iou_thres, classes=[0], verbose=False)[0].boxes.data.cpu().numpy()
 
             # Run tracker for this camera
             img_path = f"{camera_name}_frame_{cur_frame:05d}"  # Synthetic path for compatibility
@@ -863,7 +882,7 @@ def run(args, conf_thres, iou_thres, data_root, scene, enable_3d=False, enable_b
         print("[CLEANUP] BEV video writer released")
 
     # Save results in unified format
-    output_dir = f"output_videos/{scene}"
+    output_dir = f"output_txt/{scene}"
     write_results_unified(results_lists, scene, output_dir)
     
     print('[SYSTEM] Processing completed successfully!')

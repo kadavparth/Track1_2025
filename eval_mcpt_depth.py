@@ -240,10 +240,10 @@ def get_reader_writer_3d(source_path, enable_3d=False):
 def run(args, conf_thres, iou_thres, sources, result_paths, perspective, cam_ids, scene, enable_3d=False):
     # detection model initilaize
     if int(scene.split('_')[1]) in range(61,81):
-        detection = YOLO('runs/best.pt')
+        detection = YOLO('pretrained/best_1.pt')
     else:
-        # detection = YOLO('yolov8n.pt')
-        detection = YOLO('runs/best.pt') # Parth' model weights
+        detection = YOLO('pretrained/best_1.pt')
+        # detection = YOLO('runs/best.pt') # Parth' model weights
         print('detection model loaded', detection)
         
     # pose estimation initialize
@@ -370,7 +370,7 @@ def run(args, conf_thres, iou_thres, sources, result_paths, perspective, cam_ids
             depth_maps.append(depth_map)
 
             # run detection model
-            dets = detection(img, conf=conf_thres, iou=iou_thres, classes=[0,1,2,3], verbose=False)[0].boxes.data.cpu().numpy()
+            dets = detection(img, conf=conf_thres, iou=iou_thres, classes=[0], verbose=False)[0].boxes.data.cpu().numpy()
 
             # Original 3D position calculation (if needed for other parts of the system)
             if enable_3d and depth_map is not None and camera_calibrations[idx] is not None:
